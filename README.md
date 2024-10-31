@@ -18,7 +18,7 @@ A versatile file compression tool implemented in Go that supports multiple compr
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/filecompressor
+git clone https://github.com/sanjay7178/filecompressor
 cd filecompressor
 go build
 ```
