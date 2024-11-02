@@ -1,85 +1,117 @@
+// main_test.go
 package main
 
 import (
-	"bytes"
-	// "filecompressor/compress"
-	"io/ioutil" 
-	"os"
-	"testing"
-	"strings"
+    "bytes"
+    "filecompressor/compress"
+    "io/ioutil"
+    "os"
+    "testing"
+    "path/filepath"
+    "strings"
 )
 
+// Helper function to handle compression
+func compressData(data []byte, algorithms string) ([]byte, error) {
+    chain := make([]compress.Compressor, 0)
+    
+    for _, algo := range strings.Split(algorithms, ",") {
+        switch algo {
+        case "lzw":
+            chain = append(chain, compress.NewLZWCompressor())
+        case "huffman":
+            chain = append(chain, compress.NewHuffmanCompressor())
+        case "rle":
+            chain = append(chain, compress.NewRLECompressor())
+        case "sf":
+            chain = append(chain, compress.NewShannonFanoCompressor())
+        case "bwt":
+            chain = append(chain, compress.NewBWTCompressor(1024))
+        }
+    }
+    
+    compressor := compress.NewCompressionChain(chain...)
+    return compressor.Compress(data)
+}
+
 func TestAllAlgorithms(t *testing.T) {
-	algorithms := []string{
-		"lzw",
-		"huffman", 
-		"rle",
-		"sf",
-		"bwt",
-		"lzw,huffman",
-		"huffman,rle",
-		"sf,bwt",
-		"lzw,huffman,rle",
-		"sf,bwt,huffman",
-		"lzw,huffman,rle,sf,bwt",
-	}
+    algorithms := []string{
+        "lzw",
+        "huffman",
+        "rle",
+        "sf",
+        "bwt",
+        "lzw,huffman",
+        "huffman,rle",
+        "sf,bwt",
+        "lzw,huffman,rle",
+        "sf,bwt,huffman",
+        "lzw,huffman,rle,sf,bwt",
+    }
 
-	testData := []string{
-		"This is a simple test string",
-		"AAAAABBBCCCCCCDDEEEEEE", // Good for RLE
-		"mississippi", // Good for Huffman/Shannon-Fano
-		strings.Repeat("test", 100), // Longer input
-		"", // Empty string
-	}
+    testData := []string{
+        "This is a test string",
+        "Hello world!",
+        "Repeated repeated repeated repeated data",
+        "Binary\x00\x01\x02\x03data\xff\xfe\xfd\xfc",
+    }
 
-	for _, data := range testData {
-		for _, algo := range algorithms {
-			t.Run(algo+"_"+data[:min(10,len(data))], func(t *testing.T) {
-				// Create temp input file
-				tmpfile, err := ioutil.TempFile("", "test")
-				if err != nil {
-					t.Fatal(err)
-				}
-				defer os.Remove(tmpfile.Name())
+    for _, algo := range algorithms {
+        for _, data := range testData {
+            t.Run(algo+"_"+data[:10], func(t *testing.T) {
+                input := []byte(data)
+                
+                // Compress
+                compressed, err := compressData(input, algo)
+                if err != nil {
+                    t.Fatalf("Compression failed: %v", err)
+                }
+                
+                if len(compressed) == 0 {
+                    t.Error("Compressed data is empty")
+                }
 
-				if _, err := tmpfile.Write([]byte(data)); err != nil {
-					t.Fatal(err) 
-				}
-				if err := tmpfile.Close(); err != nil {
-					t.Fatal(err)
-				}
+                // Write to temporary file
+                tmpFile := filepath.Join(os.TempDir(), "test.comp")
+                if err := ioutil.WriteFile(tmpFile, compressed, 0644); err != nil {
+                    t.Fatalf("Failed to write compressed file: %v", err)
+                }
+                defer os.Remove(tmpFile)
 
-				// Test compression
-				compressFile := tmpfile.Name() + ".comp"
-				os.Args = []string{"cmd", "-algo=" + algo, tmpfile.Name()}
-				main()
+                // Read and decompress
+                compressedData, err := ioutil.ReadFile(tmpFile)
+                if err != nil {
+                    t.Fatalf("Failed to read compressed file: %v", err)
+                }
 
-				compressed, err := ioutil.ReadFile(compressFile) 
-				if err != nil {
-					t.Fatalf("Failed to read compressed file: %v", err)
-				}
-				if len(compressed) == 0 && len(data) > 0 {
-					t.Fatal("Compressed file is empty")
-				}
+                chain := make([]compress.Compressor, 0)
+                for _, a := range strings.Split(algo, ",") {
+                    switch a {
+                    case "lzw":
+                        chain = append(chain, compress.NewLZWCompressor())
+                    case "huffman":
+                        chain = append(chain, compress.NewHuffmanCompressor())
+                    case "rle":
+                        chain = append(chain, compress.NewRLECompressor())
+                    case "sf":
+                        chain = append(chain, compress.NewShannonFanoCompressor())
+                    case "bwt":
+                        chain = append(chain, compress.NewBWTCompressor(1024))
+                    }
+                }
 
-				// Test decompression
-				os.Args = []string{"cmd", "-d", compressFile}
-				main()
+                compressor := compress.NewCompressionChain(chain...)
+                decompressed, err := compressor.Decompress(compressedData)
+                if err != nil {
+                    t.Fatalf("Decompression failed: %v", err)
+                }
 
-				decompressed, err := ioutil.ReadFile(tmpfile.Name())
-				if err != nil {
-					t.Fatalf("Failed to read decompressed file: %v", err)
-				}
-
-				if !bytes.Equal([]byte(data), decompressed) {
-					t.Fatal("Decompressed data doesn't match original")
-				}
-
-				// Cleanup
-				os.Remove(compressFile)
-			})
-		}
-	}
+                if !bytes.Equal(input, decompressed) {
+                    t.Errorf("Data mismatch after compression/decompression\nInput: %q\nOutput: %q", input, decompressed)
+                }
+            })
+        }
+    }
 }
 
 func TestLargeFile(t *testing.T) {

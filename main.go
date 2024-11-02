@@ -62,29 +62,23 @@ func main() {
 
 	var result []byte
 	if decompress {
-		if !strings.HasSuffix(filename, ".comp") {
-			fmt.Printf("Error: Compressed file must have .comp extension\n")
-			os.Exit(1)
+		for _, filename := range flag.Args() {
+			data, err := ioutil.ReadFile(filename)
+			if err != nil {
+				fmt.Printf("Error reading file %s: %v\n", filename, err)
+				os.Exit(1)
+			}
+			decompressedData, err := decompressData(data, algoList)
+			if err != nil {
+				fmt.Printf("Error during decompression: %v\n", err)
+				os.Exit(1)
+			}
+			outputFilename := strings.TrimSuffix(filename, ".comp")
+			if err := ioutil.WriteFile(outputFilename, decompressedData, 0644); err != nil {
+				fmt.Printf("Error writing decompressed file %s: %v\n", outputFilename, err)
+				os.Exit(1)
+			}
 		}
-
-		result, err = compressor.Decompress(data)
-		if err != nil {
-			fmt.Printf("Error during decompression: %v\n", err)
-			os.Exit(1)
-		}
-
-		outfile := strings.TrimSuffix(filename, ".comp")
-		err = ioutil.WriteFile(outfile, result, 0644)
-		if err != nil {
-			fmt.Printf("Error writing decompressed file: %v\n", err)
-			os.Exit(1)
-		}
-
-		if verbose {
-			fmt.Printf("Decompressed size: %d bytes\n", len(result))
-		}
-		fmt.Printf("Successfully decompressed to: %s\n", outfile)
-
 	} else {
 		result, err = compressor.Compress(data)
 		if err != nil {
@@ -112,6 +106,26 @@ func main() {
 		}
 		fmt.Printf("Successfully compressed to: %s using algorithms: %s\n", outfile, algorithms)
 	}
+}
+
+func decompressData(data []byte, algorithms []string) ([]byte, error) {
+	chain := make([]compress.Compressor, 0)
+	for _, algo := range algorithms {
+		switch algo {
+		case "lzw":
+			chain = append(chain, compress.NewLZWCompressor())
+		case "huffman":
+			chain = append(chain, compress.NewHuffmanCompressor())
+		case "rle":
+			chain = append(chain, compress.NewRLECompressor())
+		case "sf":
+			chain = append(chain, compress.NewShannonFanoCompressor())
+		case "bwt":
+			chain = append(chain, compress.NewBWTCompressor(1024))
+		}
+	}
+	compressor := compress.NewCompressionChain(chain...)
+	return compressor.Decompress(data)
 }
 
 func min(a, b int) int {
